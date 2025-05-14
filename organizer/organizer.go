@@ -9,18 +9,22 @@ import (
 )
 
 func Organize(root string, recursive, dryRun bool, ignoreExt map[string]bool, extMapping map[string]string) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	var scanned, moved, skipped int
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		scanned += 1
 		if err != nil {
 			return err
 		}
 
 		// skip the root directory itself
 		if path == root {
+			skipped += 1
 			return nil
 		}
 
 		// skip subdirectories if not in recursive mode
 		if d.IsDir() {
+			skipped += 1
 			if !recursive {
 				return filepath.SkipDir
 			}
@@ -36,6 +40,7 @@ func Organize(root string, recursive, dryRun bool, ignoreExt map[string]bool, ex
 
 		// ignore extension
 		if ignoreExt[ext] {
+			skipped += 1
 			fmt.Printf("ignore path: %s\n", path)
 			return nil
 		}
@@ -48,12 +53,14 @@ func Organize(root string, recursive, dryRun bool, ignoreExt map[string]bool, ex
 		destDir := filepath.Join(root, ext)
 		err = os.MkdirAll(destDir, os.ModePerm)
 		if err != nil {
+			skipped += 1
 			return err
 		}
 
 		destPath := filepath.Join(destDir, filepath.Base(path))
 		newPath, err := resolveConflict(destPath)
 		if err != nil {
+			skipped += 1
 			return err
 		}
 
@@ -61,12 +68,25 @@ func Organize(root string, recursive, dryRun bool, ignoreExt map[string]bool, ex
 		if !dryRun {
 			err = os.Rename(path, newPath)
 			if err != nil {
+				skipped += 1
 				return err
 			}
 		}
+		moved += 1
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("\n✔ Summary:")
+	fmt.Printf("  Total files scanned: %d\n", scanned)
+	fmt.Printf("  Moved: %d\n", moved)
+	fmt.Printf("  Skipped: %d\n", skipped)
+	fmt.Printf("  (Dry run: %v)\n", dryRun)
+
+	return nil
 }
 
 func resolveConflict(destPath string) (string, error) {
